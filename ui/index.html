@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LeoLink</title>
+<link rel="icon" href="icon.svg">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <button class="brand" id="about" title="O aplikaci"><img src="icon.svg" alt=""><div><b>LeoLink</b><small id="ver"></small></div></button>
+  <div class="pills" id="pills"></div>
+  <select id="lang" title="Jazyk / Language" translate="no"><option value="cs">Čeština</option><option value="en">English</option></select>
+</header>
+<nav class="tabs" id="tabs">
+  <button data-tab="overview" class="on">Přehled</button>
+  <button data-tab="ha">Home Assistant</button>
+  <button data-tab="lz">Režim Leonzilla</button>
+  <button data-tab="log">Záznam</button>
+  <button data-tab="help">Návod</button>
+</nav>
+<main id="main">
+  <section data-pane="overview" class="pane on"></section>
+  <section data-pane="ha" class="pane"></section>
+  <section data-pane="lz" class="pane"></section>
+  <section data-pane="log" class="pane"></section>
+  <section data-pane="help" class="pane"></section>
+</main>
+<div class="savebar" id="savebar" hidden>
+  <span>Neuložené změny</span>
+  <button class="ghost" id="discard">Zahodit</button>
+  <button class="primary" id="save">Uložit</button>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script src="i18n.js"></script>
+<script src="lang_en.js"></script>
+<script src="help.js"></script>
+<script src="app.js"></script>
+<script src="about.js"></script>
+</body>
+</html>

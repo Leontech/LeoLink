@@ -1,0 +1,16 @@
+# build output
+/dist/
+*.exe
+LeoLink.zip
+
+# settings / logs of a running LeoLink (they live in ProgramData / LocalAppData, never in the repository)
+config.json
+state.json
+*.log
+
+# editors / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
