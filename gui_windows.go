@@ -122,7 +122,11 @@ func setPasswordlessOff() error {
 func detectApps() []App {
 	var out []App
 	local := os.Getenv("LOCALAPPDATA")
-	if p := filepath.Join(local, "AnthropicClaude", "claude.exe"); fileExists(p) {
+	if ok, p := procImage("claude.exe"); ok && packagedAppID(p) != "" {
+		out = append(out, App{On: true, Name: "Claude", Path: `shell:AppsFolder\` + packagedAppID(p), Min: true})
+	} else if id := appxID("Claude"); id != "" {
+		out = append(out, App{On: true, Name: "Claude", Path: `shell:AppsFolder\` + id, Min: true})
+	} else if p := filepath.Join(local, "AnthropicClaude", "claude.exe"); fileExists(p) {
 		out = append(out, App{On: true, Name: "Claude", Path: p, Min: true})
 	} else if ok, p := procImage("claude.exe"); ok && p != "" {
 		out = append(out, App{On: true, Name: "Claude", Path: p, Min: true})
@@ -353,10 +357,33 @@ func doInstall() error {
 	if err := registerTask(taskAgent, ag); err != nil {
 		return err
 	}
+	if err := startMenuLink(in.Exe); err != nil {
+		logf("zástupce v nabídce Start: %v", err)
+	}
 	if err := schtasks("/run", "/tn", taskService); err != nil {
 		return err
 	}
 	return schtasks("/run", "/tn", taskAgent)
+}
+
+// startMenuLink: "LeoLink" in the Start menu of all users (the settings window). "" removes it.
+func startMenuLink(target string) error {
+	lnk := filepath.Join(os.Getenv("ProgramData"), `Microsoft\Windows\Start Menu\Programs\LeoLink.lnk`)
+	if target == "" {
+		err := os.Remove(lnk)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	q := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+	ps := `$s = (New-Object -ComObject WScript.Shell).CreateShortcut(` + q(lnk) + `); $s.TargetPath = ` + q(target) +
+		`; $s.WorkingDirectory = ` + q(filepath.Dir(target)) + `; $s.Description = 'LeoLink – Home Assistant, režim Leonzilla'; $s.Save()`
+	out, err := hidden(exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps)).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func doUninstall() error {
@@ -366,6 +393,7 @@ func doUninstall() error {
 	_ = schtasks("/delete", "/tn", taskService, "/f")
 	_ = schtasks("/delete", "/tn", taskAgent, "/f")
 	_ = schtasks("/delete", "/tn", `LeoLink`, "/f") // the folder in Task Scheduler
+	_ = startMenuLink("")
 	killOthers()
 	time.Sleep(500 * time.Millisecond)
 	self, _ := os.Executable()
@@ -385,3 +413,17 @@ func doUninstall() error {
 }
 
 var _ = syscall.Errno(0)
+
+// appxID: "<family>!<app id>" of an installed MSIX package of the current user (Get-AppxPackage), "" when there is none.
+func appxID(name string) string {
+	ps := `$p = Get-AppxPackage -Name '` + name + `' | Select-Object -First 1; if ($p) { $a = (Get-AppxPackageManifest $p).Package.Applications.Application | Select-Object -First 1; $p.PackageFamilyName + '!' + $a.Id }`
+	out, err := hidden(exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps)).Output()
+	if err != nil {
+		return ""
+	}
+	v := strings.TrimSpace(string(out))
+	if !strings.Contains(v, "!") || strings.HasSuffix(v, "!") {
+		return ""
+	}
+	return v
+}

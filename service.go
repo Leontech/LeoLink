@@ -33,9 +33,9 @@ type service struct {
 }
 
 func runService() {
-	logf("LeoLink %s – služba startuje", appVersion)
 	s := &service{st: loadState()}
-	s.cfg, s.cfgStamp = loadConfig(), configStamp()
+	s.cfg, s.cfgStamp = loadConfig(), configStamp() // (sets the language of the log)
+	logf("LeoLink %s – služba startuje", appVersion)
 	s.checkPending()
 	s.connect()
 	last := time.Now().Round(0)
@@ -268,7 +268,34 @@ func (s *service) leonzillaBoot() {
 		logf("state.json: %v", err)
 	}
 	logf("režim Leonzilla: připraveno jedno automatické přihlášení (%s) – restartuji PC", c.User)
-	s.powerAction("restart")
+	go s.bootRestart()
+}
+
+// bootRestart: right after the PC resumes from "fast startup", Windows refuses to restart for a while
+// (shutdown.exe exit status 1115 = "a system shutdown is in progress"). Try again every 5 s for 3 minutes –
+// unless somebody signs in by hand in the meantime (then no restart; the agent starts the programs without locking).
+func (s *service) bootRestart() {
+	_ = s.link.pub(s.cfg.topic("status"), "offline", true)
+	time.Sleep(500 * time.Millisecond)
+	for i := 0; ; i++ {
+		err := sys.Power("restart")
+		if err == nil {
+			return
+		}
+		if i == 0 {
+			logf("restart zatím nejde (%v) – zkouším znovu každých 5 s", err)
+		}
+		time.Sleep(5 * time.Second)
+		if u := sys.LoggedOnUser(); u != "" {
+			logf("%s se mezitím přihlásil ručně – restart ruším", u) // the agent starts the programs without locking
+			break
+		}
+		if i >= 36 {
+			logf("restart se nepovedl ani po 3 minutách: %v", err)
+			break
+		}
+	}
+	_ = s.link.pub(s.cfg.topic("status"), "online", true)
 }
 
 // checkPending switches the automatic sign-in off once it has been used – or after 10 minutes, if it did not work.

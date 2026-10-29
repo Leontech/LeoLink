@@ -35,11 +35,12 @@ type agent struct {
 }
 
 func runAgent() {
-	logf("LeoLink %s – agent startuje (%s)", appVersion, sys.LoggedOnUser())
 	a := &agent{st: loadAgentState()}
-	a.cfg, a.cfgStamp = loadConfig(), configStamp()
+	a.cfg, a.cfgStamp = loadConfig(), configStamp() // (sets the language of the log)
+	logf("LeoLink %s – agent startuje (%s)", appVersion, sys.LoggedOnUser())
 	a.checkBoot()
 	a.connect()
+	go runTray(a)
 	last := time.Now().Round(0)
 	for range time.Tick(5 * time.Second) {
 		now := time.Now().Round(0)
@@ -93,6 +94,11 @@ func (a *agent) checkBoot() {
 	a.mu.Lock()
 	a.st.HandledBoot = st.RemoteBoot
 	a.mu.Unlock()
+	if b := sys.BootTime(); !b.IsZero() && b.Add(time.Minute).Before(st.RemoteBoot) {
+		// the restart did not happen – somebody signed in by hand: start the programs, but do not lock them out
+		a.startLeonzilla("probuzení z Home Assistantu", false)
+		return
+	}
 	a.startLeonzilla("po automatickém přihlášení", a.cfg.LockAfter)
 }
 
@@ -157,6 +163,9 @@ func (a *agent) startLeonzilla(why string, lock bool) {
 			continue
 		}
 		exe := filepath.Base(strings.ReplaceAll(app.Path, `\`, "/"))
+		if strings.HasPrefix(strings.ToLower(app.Path), "shell:") && app.Name != "" {
+			exe = app.Name + ".exe" // shell:AppsFolder\Claude_…!Claude → claude.exe
+		}
 		if strings.EqualFold(filepath.Ext(exe), ".exe") && sys.ProcRunning(exe) {
 			logf("  %s už běží", app.Name)
 			continue
@@ -266,6 +275,25 @@ func (a *agent) checkSleep() {
 		logf("nepovedlo se: %v", err)
 		_ = a.link.pub(cfg.topic("status"), "online", true)
 	}
+}
+
+// trayStatus: lines for the tooltip / menu of the icon next to the clock.
+func (a *agent) trayStatus() string {
+	a.mu.Lock()
+	remote, sleepIn, link := a.st.Remote, a.sleepIn, a.link
+	a.mu.Unlock()
+	mq := T("MQTT: nepřipojeno")
+	if link != nil && link.Up() {
+		mq = T("MQTT: připojeno")
+	}
+	lz := T("Režim Leonzilla: ne")
+	if remote {
+		lz = T("Režim Leonzilla: zapnutý")
+		if sleepIn != "" && sleepIn != "—" {
+			lz += " – " + T("uspání") + " " + sleepIn
+		}
+	}
+	return "LeoLink " + appVersion + "\n" + mq + "\n" + lz
 }
 
 func (a *agent) setSleepIn(s string) { a.mu.Lock(); a.sleepIn = s; a.mu.Unlock() }

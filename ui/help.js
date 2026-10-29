@@ -17,13 +17,15 @@ Pak s <a href="https://github.com/Leontech/leonzilla" data-url>Leonzillou</a> pr
 
     ["instalace", "Instalace krok za krokem", `
 <ol>
-<li>Spusť <code>LeoLink.exe</code> (požádá o oprávnění správce – ukládá heslo pro přihlášení a zakládá naplánované úlohy).</li>
+<li>Spusť <code>LeoLink.exe</code> (požádá o oprávnění správce – ukládá heslo pro přihlášení a zakládá naplánované úlohy).
+  Při prvním spuštění tě provede <b>průvodce</b> (jde spustit i později: Přehled → <i>Průvodce nastavením</i>).</li>
 <li><b>Home Assistant</b>: adresa MQTT brokeru (většinou IP Home Assistantu), port 1883, uživatel a heslo → <i>Vyzkoušet připojení</i> → <i>Uložit</i>.</li>
 <li><b>Režim Leonzilla</b>: zaškrtni automatické přihlášení, zadej heslo k účtu Windows → <i>Ověřit a uložit</i>. Vyber programy (<i>Najít programy automaticky</i>).</li>
 <li><b>Přehled</b> → <i>Nainstalovat</i>. LeoLink se zkopíruje do <code>C:\\Program Files\\LeoLink</code> a založí dvě úlohy:
   <code>LeoLink\\Service</code> (při startu PC, jako SYSTEM) a <code>LeoLink\\Agent</code> (při tvém přihlášení, bez práv správce).</li>
 <li>Do Home Assistantu vlož skript ze záložky <b>Home Assistant</b> (a případně kartu).</li>
 <li><b>Přehled → Vyzkoušet</b> – tlačítka pošlou stejnou zprávu jako HA.</li>
+<li>U hodin je <b>ikona LeoLink</b> (stav MQTT a režimu Leonzilla, vypnout monitory, zamknout, otevřít nastavení). V nabídce Start je zástupce <b>LeoLink</b>.</li>
 </ol>
 <p>Novou verzi nainstaluješ stejně – spusť nové <code>LeoLink.exe</code> a klikni <i>Aktualizovat</i>. Nastavení zůstane.</p>`],
 
@@ -57,7 +59,10 @@ Služba automatické přihlášení <b>hned vypne</b> – nejpozději po 10 minu
 <p><b>Účet Microsoft:</b> zadej heslo k účtu Microsoft, ne PIN. Pokud je ve Windows zapnuté <i>„pro účty Microsoft povolit jen přihlášení
 přes Windows Hello“</i>, Windows heslo nepřijmou – LeoLink to ukáže a umí volbu vypnout (PIN zůstane).</p>
 <p><b>Programy</b> se spouštějí v pořadí ze seznamu, co už běží, se přeskočí. Leonzilla s parametrem <code>--minimized</code> naběhne jen na
-hlavní panel. Když změníš heslo k Windows, ulož ho v LeoLinku znovu.</p>`],
+hlavní panel. Když změníš heslo k Windows, ulož ho v LeoLinku znovu.</p>
+<p><b>Heslo neznáš?</b> Když znáš aspoň to staré, změň ho sám přes <b>Ctrl+Alt+Del → Změnit heslo</b>. <b>Nikdy</b> ho nenastavuj znovu jako
+správce (<code>net user</code>, Správa počítače, cizí účet správce) – je to reset hesla a Windows při něm ztratí klíče, kterými mají zašifrovaná
+uložená hesla v prohlížečích, Správce pověření a přihlášení aplikací. LeoLink heslo jen ověřuje a ukládá, na účtu nikdy nic nemění.</p>`],
 
     ["uspani", "Automatické uspání", `
 <p>Jen v režimu Leonzilla. PC usne (nebo se vypne – podle nastavení), když se po nastavenou dobu nic neděje:</p>
@@ -73,7 +78,7 @@ Odpočet vidíš v HA (<i>Automatické uspání</i>). Leonzilla hlásí svou či
 <p><a href="https://github.com/Leontech/leonzilla" data-url>Leonzilla</a> nahrává projekty na servery, spouští buildy, zálohuje a pushuje na GitHub.
 Od verze 1.11.20 ji jde <b>ovládat z mobilu</b> (jen spouštění karet). LeoLink k tomu zajistí, že PC na dálku naběhne a po práci zase usne.</p>
 <ol>
-<li>Leonzilla: Nastavení aplikace → Obecné → <i>Vzdálený přístup (z mobilu)</i> – zapnout, heslo, adresu otevři v mobilu a přidej na plochu.</li>
+<li>Leonzilla: Nastavení aplikace → záložka <i>Vzdálený přístup</i> – zapnout, heslo, adresu otevři v mobilu a přidej na plochu. Má-li Leonzilla hlavní heslo, je po spuštění zamčená: v mobilu se nejdřív přihlásíš heslem pro vzdálený přístup a pak ji odemkneš hlavním heslem.</li>
 <li>Mobil mimo domov: VPN do domácí sítě (např. WireGuard).</li>
 <li>LeoLink: v programech zaškrtni Leonzillu (parametr <code>--minimized</code>).</li>
 <li>Z mobilu: HA → <i>Probudit – režim Leonzilla</i> → po 1–2 minutách otevři Leonzillu a spouštěj karty.</li>
@@ -110,13 +115,15 @@ Then you work with <a href="https://github.com/Leontech/leonzilla" data-url>Leon
 
     ["instalace", "Installation step by step", `
 <ol>
-<li>Run <code>LeoLink.exe</code> (it asks for administrator rights – it stores the sign-in password and creates scheduled tasks).</li>
+<li>Run <code>LeoLink.exe</code> (it asks for administrator rights – it stores the sign-in password and creates scheduled tasks).
+  On the first start a <b>wizard</b> takes you through the setup (you can run it later too: Overview → <i>Setup wizard</i>).</li>
 <li><b>Home Assistant</b>: address of the MQTT broker (usually the IP of Home Assistant), port 1883, user and password → <i>Try the connection</i> → <i>Save</i>.</li>
 <li><b>Leonzilla mode</b>: tick the automatic sign-in, enter the password of your Windows account → <i>Verify and save</i>. Choose the programs (<i>Find programs automatically</i>).</li>
 <li><b>Overview</b> → <i>Install</i>. LeoLink copies itself to <code>C:\\Program Files\\LeoLink</code> and creates two tasks:
   <code>LeoLink\\Service</code> (at PC start, as SYSTEM) and <code>LeoLink\\Agent</code> (at your sign-in, without administrator rights).</li>
 <li>Put the script from the <b>Home Assistant</b> tab into Home Assistant (and the card, if you like).</li>
 <li><b>Overview → Try</b> – the buttons send the same message as HA.</li>
+<li>Next to the clock there is the <b>LeoLink icon</b> (MQTT and Leonzilla mode status, monitors off, lock, open the settings). The Start menu has a <b>LeoLink</b> shortcut.</li>
 </ol>
 <p>A new version installs the same way – run the new <code>LeoLink.exe</code> and click <i>Update</i>. The settings stay.</p>`],
 
@@ -150,7 +157,11 @@ registry. It is given to Winlogon for one sign-in only (<code>AutoLogonCount=1</
 <p><b>Microsoft account:</b> enter the Microsoft account password, not the PIN. If Windows has <i>“only allow Windows Hello sign-in for Microsoft
 accounts”</i> on, Windows accept no password – LeoLink shows it and can switch the option off (your PIN stays).</p>
 <p><b>Programs</b> start in the order of the list, the ones already running are skipped. Leonzilla with <code>--minimized</code> starts on the
-taskbar only. When you change your Windows password, store it in LeoLink again.</p>`],
+taskbar only. When you change your Windows password, store it in LeoLink again.</p>
+<p><b>Don't know the password?</b> If you know at least the old one, change it yourself with <b>Ctrl+Alt+Del → Change a password</b>. <b>Never</b>
+set it again as an administrator (<code>net user</code>, Computer Management, another administrator account) – that is a password reset and Windows
+lose the keys that encrypt the passwords saved in browsers, Credential Manager and the sign-ins of apps. LeoLink only checks and stores the
+password, it never changes anything on the account.</p>`],
 
     ["uspani", "Automatic sleep", `
 <p>Only in Leonzilla mode. The PC goes to sleep (or shuts down – as set) when nothing happens for the set time:</p>
@@ -166,7 +177,7 @@ The countdown is shown in HA (<i>Automatic sleep</i>). Leonzilla reports its act
 <p><a href="https://github.com/Leontech/leonzilla" data-url>Leonzilla</a> uploads projects to servers, runs builds, makes backups and pushes to GitHub.
 Since 1.11.20 it can be <b>used from a phone</b> (running cards only). LeoLink makes sure the PC comes up from a distance and goes to sleep afterwards.</p>
 <ol>
-<li>Leonzilla: App settings → General → <i>Remote access (from a phone)</i> – switch on, password, open the address on the phone and add it to the home screen.</li>
+<li>Leonzilla: App settings → the <i>Remote access</i> tab – switch on, password, open the address on the phone and add it to the home screen. If Leonzilla has a master password, it is locked after it starts: on the phone sign in with the remote-access password first, then unlock it with the master password.</li>
 <li>Phone away from home: a VPN into the home network (e.g. WireGuard).</li>
 <li>LeoLink: tick Leonzilla among the programs (argument <code>--minimized</code>).</li>
 <li>From the phone: HA → <i>Wake – Leonzilla mode</i> → after 1–2 minutes open Leonzilla and run the cards.</li>

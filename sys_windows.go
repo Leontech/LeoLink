@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -538,6 +539,9 @@ func (*winSys) ProcRunning(exe string) bool { ok, _ := procImage(exe); return ok
 // StartApp goes through "start" of cmd.exe: works for .exe, .lnk, documents and shell: links; /min = minimized.
 func (*winSys) StartApp(a App) error {
 	p := strings.TrimSpace(a.Path)
+	if id := packagedAppID(p); id != "" {
+		p = `shell:AppsFolder\` + id
+	}
 	if !strings.Contains(p, ":") || strings.HasPrefix(strings.ToLower(p), "shell:") {
 		// shell:AppsFolder\…, nothing to check
 	} else if _, err := os.Stat(p); err != nil {
@@ -645,4 +649,55 @@ func singleInstance(name string) bool {
 	n, _ := windows.UTF16PtrFromString(name)
 	_, err := windows.CreateMutex(nil, false, n)
 	return !errors.Is(err, windows.ERROR_ALREADY_EXISTS)
+}
+
+// Started directly by its path it runs WITHOUT the package identity, which is not supported. Such apps must be started
+// through shell:AppsFolder\<family>!<app id>.
+// The path also changes with every update (Claude_4.29.0.0_x64__…), the family name does not.
+func packagedAppID(p string) string {
+	lp := strings.ToLower(p)
+	i := strings.Index(lp, `\windowsapps\`)
+	if i < 0 {
+		return ""
+	}
+	rest := p[i+len(`\windowsapps\`):]
+	j := strings.IndexByte(rest, '\\')
+	if j < 0 {
+		return ""
+	}
+	full, rel := rest[:j], rest[j+1:] // Claude_4.29.0.0_x64__pz8sxrjxfjjc, app\claude.exe
+	parts := strings.Split(full, "_")
+	if len(parts) < 2 {
+		return ""
+	}
+	family := parts[0] + "_" + parts[len(parts)-1]
+	b, err := os.ReadFile(filepath.Join(p[:i+len(`\windowsapps\`)]+full, "AppxManifest.xml"))
+	if err != nil {
+		return ""
+	}
+	return family + "!" + manifestAppID(string(b), rel)
+}
+
+var reAppxApp = regexp.MustCompile(`(?s)<Application\s[^>]*>`)
+var reAppxAttr = regexp.MustCompile(`(\w+)="([^"]*)"`)
+
+// manifestAppID: Id of the <Application> whose Executable is rel (first one otherwise).
+func manifestAppID(manifest, rel string) string {
+	first := ""
+	for _, tag := range reAppxApp.FindAllString(manifest, -1) {
+		attr := map[string]string{}
+		for _, m := range reAppxAttr.FindAllStringSubmatch(tag, -1) {
+			attr[m[1]] = m[2]
+		}
+		if first == "" {
+			first = attr["Id"]
+		}
+		if strings.EqualFold(strings.ReplaceAll(attr["Executable"], "/", `\`), rel) {
+			return attr["Id"]
+		}
+	}
+	if first == "" {
+		first = "App"
+	}
+	return first
 }

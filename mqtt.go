@@ -29,11 +29,12 @@ import (
 type handler func(topic string, payload []byte, retained bool)
 
 type Link struct {
-	cfg  *Config
-	role string // "service" | "agent" | "gui"
-	c    mqtt.Client
-	mu   sync.Mutex
-	up   bool
+	cfg    *Config
+	role   string // "service" | "agent" | "gui"
+	c      mqtt.Client
+	mu     sync.Mutex
+	up     bool
+	closed bool // replaced by a new connection (after sleep) – its late callbacks do nothing
 }
 
 func (c *Config) brokerURL() string {
@@ -66,6 +67,9 @@ func dial(cfg *Config, role string, subs map[string]handler, onConnect func(*Lin
 	}
 	o.SetWill(will, "offline", 1, true)
 	o.SetOnConnectHandler(func(c mqtt.Client) {
+		if l.isClosed() {
+			return // the old connection reconnected by itself just before it was replaced
+		}
 		l.setUp(true)
 		logf("MQTT připojeno (%s)", cfg.brokerURL())
 		l.pub(will, "online", true)
@@ -74,11 +78,18 @@ func dial(cfg *Config, role string, subs map[string]handler, onConnect func(*Lin
 			c.Subscribe(t, 1, func(_ mqtt.Client, m mqtt.Message) { h(m.Topic(), m.Payload(), m.Retained()) })
 		}
 		if onConnect != nil {
-			go onConnect(l)
+			go func() {
+				if !l.isClosed() {
+					onConnect(l)
+				}
+			}()
 		}
 	})
 	o.SetConnectionLostHandler(func(_ mqtt.Client, err error) {
 		l.setUp(false)
+		if l.isClosed() {
+			return
+		}
 		logf("MQTT spojení ztraceno: %v", err)
 	})
 	l.c = mqtt.NewClient(o)
@@ -89,6 +100,8 @@ func dial(cfg *Config, role string, subs map[string]handler, onConnect func(*Lin
 	l.c.Connect() // ConnectRetry: keeps trying in the background
 	return l
 }
+
+func (l *Link) isClosed() bool { l.mu.Lock(); defer l.mu.Unlock(); return l.closed }
 
 func (l *Link) setUp(v bool) { l.mu.Lock(); l.up = v; l.mu.Unlock() }
 func (l *Link) Up() bool     { l.mu.Lock(); defer l.mu.Unlock(); return l.up }
@@ -125,6 +138,9 @@ func (l *Link) close(offline bool) {
 		}
 		_ = l.pub(t, "offline", true)
 	}
+	l.mu.Lock()
+	l.closed = true
+	l.mu.Unlock()
 	l.c.Disconnect(300)
 }
 
@@ -339,7 +355,9 @@ func discoveryTopic(c *Config, e entity) string {
 func (l *Link) publishDiscovery(disks []Disk, sleepSec, screenSec int) {
 	for _, e := range l.cfg.entities(disks, sleepSec, screenSec) {
 		if err := l.pub(discoveryTopic(l.cfg, e), e.cfg, true); err != nil {
-			logf("discovery %s: %v", e.id, err)
+			if !l.isClosed() {
+				logf("discovery %s: %v", e.id, err)
+			}
 			return
 		}
 	}

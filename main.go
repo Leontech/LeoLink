@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-const appVersion = "0.1.0"
+const appVersion = "0.1.1"
 
 const appTitle = "LeoLink"
 

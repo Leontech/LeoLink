@@ -122,6 +122,7 @@ function renderOverview() {
     </div>
     <div class="btns">
       <button class="primary" id="install">${inst.installed ? (newer ? "Aktualizovat na " + esc(S.version) : "Přeinstalovat") : "Nainstalovat"}</button>
+      <button class="ghost" id="wizard">Průvodce nastavením</button>
     </div>
     ${S.pending ? `<div class="note warn">Automatické přihlášení je právě připravené (čeká se na restart). Po přihlášení nebo do 10 minut se samo vypne.</div>` : ""}
   </div>
@@ -151,6 +152,7 @@ function renderOverview() {
     setState(await api("/api/install", {}), true);
     toast("Nainstalováno – služba a agent běží.");
   });
+  $("#wizard", el).onclick = () => openWizard();
   const un = $("#uninstall", el);
   if (un) un.onclick = e => {
     if (!confirm("Odinstalovat LeoLink?\n\nZastaví a smaže službu i agenta, smaže uložené heslo pro automatické přihlášení a odebere zařízení z Home Assistantu. Nastavení v ProgramData\\LeoLink zůstane.")) return;
@@ -232,31 +234,72 @@ async function loadYAML() {
   const n = (S.nics || [])[nicIdx] || {};
   try {
     const y = await api(`/api/ha?mac=${encodeURIComponent(n.mac || "")}&bcast=${encodeURIComponent(n.bcast || "")}`);
-    if ($("#y-script")) $("#y-script").value = y.script;
-    if ($("#y-card")) $("#y-card").value = y.card;
+    for (const id of ["y-script", "w-script"]) if ($("#" + id)) $("#" + id).value = y.script;
+    for (const id of ["y-card", "w-card"]) if ($("#" + id)) $("#" + id).value = y.card;
   } catch (e) { /* not important */ }
+}
+
+// Password for the automatic sign-in – shared by the "Leonzilla mode" tab and the wizard.
+// NEVER suggest resetting the password (net user / as administrator): Windows would lose the user's DPAPI keys –
+// saved browser passwords, Credential Manager, app sign-ins (incident 2026-10-29).
+function pwBlock() {
+  const acc = S.account || {};
+  const who = `<b translate="no">${esc(cfg.user || acc.user)}</b> na počítači <b translate="no">${esc(S.hostname)}</b>`;
+  const kind = acc.msa ? `účet Microsoft <b translate="no">${esc(acc.msa)}</b>` : "místní účet (bez účtu Microsoft)";
+  return `
+    <div class="pwbox">
+      <div class="acc">Účet: ${who} – ${kind}</div>
+      <label class="k" for="f-lp">Heslo, kterým se do tohoto účtu přihlašuješ ve Windows – <b>ne PIN</b></label>
+      <div class="inline"><input type="password" id="f-lp" style="max-width:260px" autocomplete="new-password" placeholder="${S.hasPassword ? "uložené – vyplň jen pro změnu" : ""}">
+        <button class="${S.hasPassword ? "ghost" : "primary"}" id="pwsave">Ověřit a uložit</button>
+        ${S.hasPassword ? `<button class="plain" id="pwclear">Smazat heslo</button>` : ""}</div>
+      <div>${S.hasPassword ? st(true, "heslo je uložené a Windows ho přijaly") : st(false, "heslo zatím není uložené", "warn")}</div>
+      <ul class="pwhelp">
+        ${acc.msa
+          ? `<li>Je to <b>heslo k účtu Microsoft</b> – stejné jako na outlook.com nebo account.microsoft.com.</li>`
+          : `<li>Je to heslo, které zadáš na přihlašovací obrazovce po kliknutí na <b>Možnosti přihlášení → ikona klíče</b>.</li>`}
+        <li>PIN to být nemůže – PIN platí jen na tomhle PC a automatické přihlášení ho použít neumí.</li>
+        <li>LeoLink heslo nejdřív ověří u Windows, uloží ho jen když sedí. Nic na účtu nemění.</li>
+        <li><b>Heslo neznáš?</b> Když znáš aspoň to staré, změň ho sám přes <b>Ctrl+Alt+Del → Změnit heslo</b>. <b>Nikdy</b> ho nenastavuj znovu jako správce (<code>net user</code>, Správa počítače …) – Windows by tím ztratily uložená hesla v prohlížečích, ve Správci pověření i přihlášení aplikací. Bez hesla používej LeoLink jen pro ovládání z Home Assistantu.</li>
+      </ul>
+      <details class="adv"><summary>Upřesnit – uživatel a doména (vyplní se samy)</summary>
+        <div class="form" style="margin-top:8px">
+          <label class="k" for="f-lu">Uživatel</label><input type="text" id="f-lu" data-k="user" style="max-width:220px">
+          <label class="k" for="f-ld">Doména / PC</label><input type="text" id="f-ld" data-k="domain" style="max-width:220px">
+        </div>
+        ${acc.msa ? `<p class="sub">Kdyby Windows heslo nepřijaly, zkus jako uživatele <code>${esc(acc.msa)}</code> a doménu <code>MicrosoftAccount</code>.</p>` : ""}
+      </details>
+    </div>
+    ${S.passwordless && acc.msa ? `<div class="note warn">Je zapnuté <b>„Zvýšit zabezpečení – pro účty Microsoft povolit jen přihlášení přes Windows Hello“</b>. Dokud to platí, Windows heslo při přihlášení nepřijmou a automatické přihlášení nepůjde. PIN zůstane, jen se k němu přidá možnost přihlásit se heslem. <button class="ghost" id="pwless">Vypnout tuto volbu</button></div>` : ""}`;
+}
+
+function bindPw(el) {
+  $("#pwsave", el).onclick = e => busy(e.target, async () => {
+    const pass = $("#f-lp", el).value;
+    if (!pass) throw new Error("Zadej heslo.");
+    e.target.textContent = "Ověřuji…";
+    const r = await api("/api/password", { user: cfg.user, domain: cfg.domain, pass });
+    setState(r, true);
+    if (!cfg.autologon) {
+      cfg.autologon = true; // the password is there for exactly this
+      if (!S.first) await save(); else render();
+    }
+    toast("Heslo Windows přijaly a je uložené. Automatické přihlášení je zapnuté.");
+  });
+  const pc = $("#pwclear", el);
+  if (pc) pc.onclick = e => busy(e.target, async () => { setState(await api("/api/password", { clear: true }), true); toast("Heslo smazáno."); });
+  const pl = $("#pwless", el);
+  if (pl) pl.onclick = e => busy(e.target, async () => { setState(await api("/api/passwordless", {}), true); toast("Vypnuto."); });
 }
 
 function renderLZ() {
   const el = $('[data-pane="lz"]');
-  const acc = S.account || {};
   el.innerHTML = `
   <div class="card">
     <h2>Automatické přihlášení</h2>
     <p class="lead">Jen pro režim Leonzilla z vypnutého PC (nebo když nikdo není přihlášený). Normální start dál chce PIN. Heslo je uložené jako tajemství LSA (jako u Sysinternals Autologon), nikdy ne čitelně v registru. Windows ho po jednom přihlášení samy zahodí.</p>
     <label class="chk"><input type="checkbox" data-k="autologon"><span>Při žádosti o režim Leonzilla se jednou přihlásit automaticky<small>PC se kvůli tomu jednou restartuje – přihlašovací obrazovka už by jinak běžela.</small></span></label>
-    <div class="form" style="margin-top:12px">
-      <label class="k" for="f-lu">Uživatel</label>
-      <div class="inline"><input type="text" id="f-lu" data-k="user" style="max-width:220px">
-        <label class="k" for="f-ld">doména / PC</label><input type="text" id="f-ld" data-k="domain" style="max-width:200px"></div>
-      <label class="k" for="f-lp">Heslo k účtu</label>
-      <div class="inline"><input type="password" id="f-lp" style="max-width:220px" autocomplete="new-password" placeholder="${S.hasPassword ? "uložené – vyplň jen pro změnu" : ""}">
-        <button class="ghost" id="pwsave">Ověřit a uložit</button>
-        ${S.hasPassword ? `<button class="plain" id="pwclear">Smazat heslo</button>` : ""}</div>
-      <span></span><span>${S.hasPassword ? st(true, "heslo je uložené") : st(false, "heslo zatím není uložené", "warn")}</span>
-    </div>
-    ${acc.msa ? `<div class="note info">Účet je propojený s účtem Microsoft <b>${esc(acc.msa)}</b> – zadej <b>heslo k účtu Microsoft</b>, ne PIN. Kdyby ho Windows nepřijaly, zkus jako uživatele <code>${esc(acc.msa)}</code> a doménu <code>MicrosoftAccount</code>.</div>` : ""}
-    ${S.passwordless ? `<div class="note warn">Je zapnuté <b>„Zvýšit zabezpečení – pro účty Microsoft povolit jen přihlášení přes Windows Hello“</b>. Dokud to platí, Windows heslo při přihlášení nepřijmou a automatické přihlášení nepůjde. PIN zůstane, jen se k němu přidá možnost přihlásit se heslem. <button class="ghost" id="pwless">Vypnout tuto volbu</button></div>` : ""}
+    ${pwBlock()}
     <label class="chk" style="margin-top:12px"><input type="checkbox" data-k="lockAfter"><span>Po automatickém přihlášení hned zamknout obrazovku<small>Programy běží dál, Leonzilla jde ovládat z mobilu. Doma u PC se odemkneš PINem.</small></span></label>
   </div>
   <div class="card">
@@ -280,17 +323,7 @@ function renderLZ() {
     const v = cfg[i.dataset.k];
     if (i.type === "checkbox") i.checked = !!v; else i.value = v ?? "";
   });
-  $("#pwsave", el).onclick = e => busy(e.target, async () => {
-    const pass = $("#f-lp").value;
-    e.target.textContent = "Ověřuji…";
-    const r = await api("/api/password", { user: cfg.user, domain: cfg.domain, pass });
-    setState(r, true);
-    toast("Heslo Windows přijaly a je uložené.");
-  });
-  const pc = $("#pwclear", el);
-  if (pc) pc.onclick = e => busy(e.target, async () => { setState(await api("/api/password", { clear: true }), true); toast("Heslo smazáno."); });
-  const pl = $("#pwless", el);
-  if (pl) pl.onclick = e => busy(e.target, async () => { setState(await api("/api/passwordless", {}), true); toast("Vypnuto."); });
+  bindPw(el);
   renderApps();
   $("#appadd", el).onclick = () => { cfg.apps.push({ on: true, name: "", path: "", args: "", min: true }); renderApps(); markDirty(); };
   $("#appdetect", el).onclick = e => busy(e.target, async () => {
@@ -364,9 +397,199 @@ function renderHelp() {
   el.querySelectorAll("[data-h]").forEach((b) => (b.onclick = () => { helpSec = b.dataset.h; renderHelp(); }));
 }
 
+
+// ---------------------------------------------------------------------------
+// Wizard – the first start (no config.json yet) and "Run the wizard again" on the overview.
+
+let wizOn = false, wizStep = 0, wizMqOk = false, wizAuto = null, wizDone = false;
+const WIZ = ["Vítej", "Home Assistant", "Účet Windows", "Programy", "Automatické uspání", "Instalace", "Skript a karta"];
+
+function openWizard() {
+  wizOn = true; wizStep = 0; wizMqOk = !!(S.service && S.service.connected); wizAuto = cfg.autologon && S.hasPassword ? true : null; wizDone = false;
+  document.body.classList.add("wizard-on");
+  renderWizard();
+}
+
+function closeWizard() {
+  wizOn = false;
+  document.body.classList.remove("wizard-on");
+  render();
+}
+
+function wizCanNext() {
+  switch (wizStep) {
+    case 1: return wizMqOk;
+    case 2: return wizAuto === false || (wizAuto === true && S.hasPassword);
+    case 5: return wizDone;
+    default: return true;
+  }
+}
+
+function renderWizard() {
+  const el = $("#wiz");
+  const nics = S.nics || [];
+  if (nicIdx >= nics.length) nicIdx = 0;
+  const steps = WIZ.map((t, i) => `<li class="${i === wizStep ? "on" : i < wizStep ? "done" : ""}"><span>${i + 1}</span>${t}</li>`).join("");
+  let body = "";
+  switch (wizStep) {
+    case 0:
+      body = `<h2>Vítej v LeoLinku</h2>
+        <p>LeoLink propojí tohle PC s Home Assistantem a umí ho na dálku probudit tak, aby na něm šlo pracovat z mobilu přes Leonzillu. Průvodce tě provede nastavením – zabere to pár minut.</p>
+        <ul class="how">
+          <li><b>Home Assistant</b> – PC se v HA objeví jako zařízení: uspat, vypnout, zamknout, monitory, Dropbox, senzory.</li>
+          <li><b>Režim Leonzilla</b> – tlačítko v HA PC probudí, jednou se samo přihlásí, spustí vybrané programy a zamkne obrazovku. Normální start dál chce PIN.</li>
+          <li><b>Automatické uspání</b> – po práci na dálku PC samo usne.</li>
+        </ul>
+        <p class="sub">Jazyk okna přepneš vpravo nahoře. Všechno půjde později změnit v záložkách.</p>`;
+      break;
+    case 1:
+      body = `<h2>Připojení k Home Assistantu (MQTT)</h2>
+        <p>LeoLink se připojuje k MQTT brokeru, který používá Home Assistant – většinou doplněk <b>Mosquitto</b>. Adresa je adresa Home Assistantu, port 1883. Uživatel a heslo: ten, kterého používá HA pro MQTT, nebo vlastní uživatel vytvořený v HA (Nastavení → Lidé → Uživatelé).</p>
+        <div class="form">
+          <label class="k" for="w-broker">Adresa brokeru</label>
+          <div class="inline"><input type="text" id="w-broker" data-k="broker" placeholder="např. 192.168.1.10" style="max-width:240px">
+            <label class="k" for="w-port">port</label><input type="number" id="w-port" data-k="port">
+            <label class="chk"><input type="checkbox" data-k="tls"><span>TLS</span></label></div>
+          <label class="k" for="w-user">Uživatel</label><input type="text" id="w-user" data-k="mqUser" style="max-width:240px">
+          <label class="k" for="w-pass">Heslo</label><input type="password" id="w-pass" style="max-width:240px" autocomplete="new-password" placeholder="${S.hasMqPass ? "uložené – vyplň jen pro změnu" : ""}">
+          <label class="k" for="w-name">Název PC v HA</label><input type="text" id="w-name" data-k="name" style="max-width:240px">
+        </div>
+        <div class="btns"><button class="primary" id="w-mqtest">Vyzkoušet připojení</button>
+          <span id="w-mqst">${wizMqOk ? st(true, "připojení funguje") : st(false, "nejdřív vyzkoušej připojení", "warn")}</span></div>`;
+      break;
+    case 2:
+      body = `<h2>Účet Windows – automatické přihlášení</h2>
+        <p>Když PC probudíš v režimu Leonzilla z <b>vypnutého</b> stavu, nikdo není přihlášený. Aby se programy mohly spustit, LeoLink se jednou přihlásí sám – k tomu potřebuje heslo k tvému účtu. Normální start dál chce PIN.</p>
+        <div class="choice">
+          <label class="chk"><input type="radio" name="w-auto" value="1" ${wizAuto === true ? "checked" : ""}><span>Ano, chci režim Leonzilla i z vypnutého PC<small>zadám heslo k účtu Windows</small></span></label>
+          <label class="chk"><input type="radio" name="w-auto" value="0" ${wizAuto === false ? "checked" : ""}><span>Ne, stačí mi ovládání z Home Assistantu<small>režim Leonzilla pak funguje jen ze spánku, když jsem přihlášený</small></span></label>
+        </div>
+        ${wizAuto ? `<div class="card inner">${pwBlock()}</div>` : ""}`;
+      break;
+    case 3:
+      body = `<h2>Programy pro režim Leonzilla</h2>
+        <p>Zaškrtnuté programy se spustí, když zapneš režim Leonzilla. Co už běží, se znovu nespouští. Seznam doplníš nebo upravíš později v záložce <b>Režim Leonzilla</b>.</p>
+        <div class="wapps">${cfg.apps.map((a, i) => `<label class="chk"><input type="checkbox" data-wa="${i}" ${a.on ? "checked" : ""}><span>${esc(a.name || a.path)}<small translate="no">${esc(a.path)}${a.args ? " " + esc(a.args) : ""}</small></span></label>`).join("") || `<p class="sub">Žádný z obvyklých programů (Claude, Dropbox, Leonzilla) se nenašel.</p>`}</div>
+        <div class="btns"><button class="ghost" id="w-detect">Najít programy znovu</button></div>`;
+      break;
+    case 4:
+      body = `<h2>Automatické uspání po práci na dálku</h2>
+        <p>Jen v režimu Leonzilla: když se nastavenou dobu nic neděje (nikdo u PC, nic z mobilu, žádná úloha Leonzilly), PC usne nebo se vypne. Jakmile u PC někdo sáhne na klávesnici nebo myš, režim Leonzilla končí a samo nic neusne.</p>
+        <label class="chk"><input type="checkbox" data-k="autoSleep"><span>Uspávat automaticky</span></label>
+        <div class="form" style="margin-top:10px">
+          <label class="k" for="w-sm">Po</label>
+          <div class="inline"><input type="number" id="w-sm" data-k="sleepMin" min="5" max="600"> minutách
+            <select data-k="sleepAct" style="max-width:160px"><option value="sleep">uspat</option><option value="shutdown">vypnout</option></select></div>
+        </div>`;
+      break;
+    case 5:
+      body = `<h2>Instalace</h2>
+        <p>LeoLink se zkopíruje do <code>C:\\Program Files\\LeoLink</code> a založí dvě naplánované úlohy: <b>službu</b> (běží pořád, i bez přihlášení – MQTT, napájení, automatické přihlášení) a <b>agenta</b> (běží po tvém přihlášení – programy, zamykání, monitory, ikona u hodin). Do nabídky Start přidá zástupce <b>LeoLink</b>.</p>
+        <div class="rows">
+          <span class="k">Home Assistant</span><span>${st(wizMqOk, `broker ${esc(cfg.broker)}:${cfg.port}, zařízení <b>${esc(cfg.name)}</b>`)}</span>
+          <span class="k">Automatické přihlášení</span><span>${cfg.autologon && S.hasPassword ? st(true, `zapnuté pro ${esc(cfg.user)}`) : st(false, "vypnuté", "warn")}</span>
+          <span class="k">Programy</span><span>${esc(cfg.apps.filter(a => a.on).map(a => a.name).join(", ") || "žádné")}</span>
+          <span class="k">Automatické uspání</span><span>${cfg.autoSleep ? `po ${cfg.sleepMin} min – ${cfg.sleepAct === "shutdown" ? "vypnout" : "uspat"}` : "vypnuté"}</span>
+        </div>
+        <div class="btns"><button class="primary" id="w-install">${wizDone ? "Nainstalováno ✓" : S.install.installed ? "Uložit a přeinstalovat" : "Uložit a nainstalovat"}</button></div>`;
+      break;
+    case 6:
+      body = `<h2>Skript a karta pro Home Assistant</h2>
+        <p>Zařízení <b>${esc(cfg.name)}</b> se v Home Assistantu objevilo samo (Nastavení → Zařízení a služby → MQTT). Zbývá skript pro probuzení v režimu Leonzilla:</p>
+        <ol class="steps">
+          <li>V <code>configuration.yaml</code> musí být řádek <code>wake_on_lan:</code> (když už PC z HA budíš, je tam).</li>
+          <li>Vlož skript do <code>scripts.yaml</code> (nebo Nastavení → Automatizace a scény → Skripty → Přidat → ⋮ Upravit v YAML, bez prvního řádku) a znovu načti skripty.</li>
+          <li>Kartu přidáš na řídicí panel: Upravit → Přidat kartu → Ruční.</li>
+        </ol>
+        <div class="form"><label class="k" for="w-nic">Síťová karta</label>
+          <select id="w-nic" style="max-width:520px">${nics.map((n, i) => `<option value="${i}" ${i === nicIdx ? "selected" : ""}>${esc(n.name)} – ${esc(n.mac)} (${esc(n.ip)})</option>`).join("") || `<option>nenalezena – doplň MAC ve skriptu ručně</option>`}</select></div>
+        <h3>Skript</h3><div class="code"><textarea id="w-script" readonly rows="11"></textarea><button class="ghost" data-copy="w-script">Kopírovat</button></div>
+        <h3>Karta</h3><div class="code"><textarea id="w-card" readonly rows="10"></textarea><button class="ghost" data-copy="w-card">Kopírovat</button></div>
+        <p class="sub">Obojí najdeš i později v záložce Home Assistant. U hodin teď najdeš ikonu LeoLink – stav a rychlé volby.</p>`;
+      break;
+  }
+  const last = wizStep === WIZ.length - 1;
+  el.innerHTML = `<div class="wiz-in">
+    <ol class="wsteps">${steps}</ol>
+    <div class="card wbody">${body}</div>
+    <div class="wfoot">
+      ${S.first ? "" : `<button class="plain" id="w-close">Zavřít průvodce</button>`}
+      <span style="flex:1"></span>
+      ${wizStep > 0 ? `<button class="ghost" id="w-back">Zpět</button>` : ""}
+      <button class="primary" id="w-next" ${wizCanNext() ? "" : "disabled"}>${last ? "Hotovo" : wizStep === 0 ? "Začít" : "Další"}</button>
+    </div></div>`;
+
+  // values + binding
+  bind(el);
+  el.querySelectorAll("[data-k]").forEach(i => {
+    const v = cfg[i.dataset.k];
+    if (i.type === "checkbox") i.checked = !!v; else i.value = v ?? "";
+  });
+  const go = d => { wizStep += d; renderWizard(); el.scrollTop = 0; };
+  $("#w-next", el).onclick = () => (last ? closeWizard() : go(1));
+  const back = $("#w-back", el); if (back) back.onclick = () => go(-1);
+  const cl = $("#w-close", el); if (cl) cl.onclick = () => { if (!dirty() || confirm("Neuložené změny zůstanou neuložené. Zavřít průvodce?")) closeWizard(); };
+
+  if (wizStep === 1) {
+    const mqInputs = el.querySelectorAll("input");
+    mqInputs.forEach(i => i.addEventListener("input", () => { wizMqOk = false; $("#w-mqst").innerHTML = st(false, "nejdřív vyzkoušej připojení", "warn"); $("#w-next").disabled = true; }));
+    $("#w-pass", el).addEventListener("input", e => { mqPassNew = e.target.value; markDirty(); });
+    $("#w-mqtest", el).onclick = e => busy(e.target, async () => {
+      e.target.textContent = "Zkouším…";
+      try {
+        await api("/api/mqtt/test", Object.assign({}, cfg, { mqPassNew }));
+        wizMqOk = true;
+        $("#w-mqst").innerHTML = st(true, "připojení funguje");
+        $("#w-next").disabled = false;
+      } catch (err) {
+        $("#w-mqst").innerHTML = st(false, "nepřipojeno: " + esc(err.message));
+        throw err;
+      }
+    });
+  }
+  if (wizStep === 2) {
+    el.querySelectorAll('[name="w-auto"]').forEach(r => r.onchange = () => {
+      wizAuto = r.value === "1";
+      if (!wizAuto) cfg.autologon = false;
+      renderWizard();
+    });
+    if (wizAuto) bindPw(el);
+  }
+  if (wizStep === 3) {
+    el.querySelectorAll("[data-wa]").forEach(c => c.onchange = () => { cfg.apps[+c.dataset.wa].on = c.checked; });
+    $("#w-detect", el).onclick = e => busy(e.target, async () => {
+      const found = await api("/api/apps/detect");
+      for (const a of found) if (a.path && !cfg.apps.some(x => x.path.toLowerCase() === a.path.toLowerCase())) cfg.apps.push(a);
+      renderWizard();
+    });
+  }
+  if (wizStep === 5) {
+    $("#w-install", el).onclick = e => busy(e.target, async () => {
+      if (wizDone) return;
+      e.target.textContent = "Ukládám…";
+      await save();
+      e.target.textContent = "Instaluji…";
+      setState(await api("/api/install", {}), true);
+      wizDone = true;
+      renderWizard();
+      toast("Nainstalováno – služba a agent běží.");
+    });
+  }
+  if (wizStep === 6) {
+    $("#w-nic", el).onchange = e => { nicIdx = +e.target.value; loadYAML(); };
+    el.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
+      const t = $("#" + b.dataset.copy);
+      try { await navigator.clipboard.writeText(t.value); } catch { t.select(); document.execCommand("copy"); }
+      toast("Zkopírováno");
+    });
+    loadYAML();
+  }
+}
+
 let current = "overview";
 function render() {
   pills();
+  if (wizOn) { renderWizard(); return; }
   const tabs = $("#tabs");
   tabs.querySelector('[data-tab="ha"]').innerHTML = "Home Assistant" + (!S.cfg.broker ? '<span class="dot"></span>' : "");
   tabs.querySelector('[data-tab="lz"]').innerHTML = "Režim Leonzilla" + (S.cfg.autologon && !S.hasPassword ? '<span class="dot"></span>' : "");
@@ -395,6 +618,7 @@ setInterval(async () => {
     const st = await api("/api/state");
     S = st;
     pills();
+    if (wizOn) return;
     if (current === "overview" && !document.activeElement?.closest?.('[data-pane="overview"]')) renderOverview();
     if (current === "log") renderLog();
   } catch (e) { /* window closing */ }
@@ -406,4 +630,4 @@ $("#lang").onchange = async (e) => {
   try { await api("/api/lang", { lang: e.target.value }); location.reload(); } catch (err) { toast(err.message, true); }
 };
 
-api("/api/state").then(st => { I18N.setLang(st.lang); setState(st); }).catch(e => toast(e.message, true));
+api("/api/state").then(st => { I18N.setLang(st.lang); setState(st); if (st.first) openWizard(); }).catch(e => toast(e.message, true));
